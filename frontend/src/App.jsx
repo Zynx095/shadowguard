@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import { Button } from "@/components/ui/button"
 import CyberGlobe from './components/CyberGlobe'
 import { Activity, ShieldAlert, ShieldCheck, UploadCloud, Video, ShieldX, MessageSquare, LayoutDashboard, Send, Loader2, Cpu, ScanEye, Terminal, Lock, Mic, Trash2 } from 'lucide-react'
@@ -14,11 +15,11 @@ export default function App() {
   const [chatInput, setChatInput] = useState("")
   const [chatHistory, setChatHistory] = useState([])
   const [isTyping, setIsTyping] = useState(false)
+  const [isLockdown, setIsLockdown] = useState(false) // NEW LOCKDOWN STATE
   const chatEndRef = useRef(null)
   const [forensicMode, setForensicMode] = useState('video') 
   const [audioResult, setAudioResult] = useState(null)
 
-  // CLEAR LOGS FUNCTION
   const clearLogs = async () => {
     try {
       await fetch('http://192.168.137.1:8000/api/logs/clear', { method: 'DELETE' });
@@ -42,9 +43,38 @@ export default function App() {
       if (message.type === 'NEW_SHADOW_AI_ALERT') { 
         setEvents(prev => [message.data, ...prev].slice(0, 100)) 
       }
+      // NEW LOCKDOWN LISTENER
+      if (message.type === 'SYSTEM_LOCKDOWN') {
+        setIsLockdown(true)
+        // Auto reset after 8 seconds for the demo
+        setTimeout(() => setIsLockdown(false), 8000)
+      }
     }
     return () => ws.close()
   }, [])
+// ==========================================
+  // NEW: TAURI HARDWARE KILLSWITCH LISTENER
+  // ==========================================
+  useEffect(() => {
+    let unlistenFn;
+    
+    const setupHardwareListener = async () => {
+      // Listen for the Rust event we created in main.rs
+      unlistenFn = await listen('HARDWARE_BREACH', (event) => {
+        console.warn("RUST TRIGGERED:", event.payload);
+        setIsLockdown(true); // TRIGGER THE RED SCREEN
+        
+        // Auto-recover after 10 seconds for demo purposes
+        setTimeout(() => setIsLockdown(false), 10000);
+      });
+    };
+
+    setupHardwareListener();
+
+    return () => {
+      if (unlistenFn) unlistenFn();
+    }
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -102,26 +132,34 @@ export default function App() {
   const systemStatusColor = events[0]?.action_taken === 'BLOCKED' ? 'bg-rose-500' : 'bg-purple-500'
 
   return (
-    <div className="min-h-screen p-8 relative selection:bg-purple-500/30 bg-[#050505] text-zinc-300 font-mono overflow-hidden">
+    // Dynamic background color based on lockdown status
+    <div className={`min-h-screen p-8 relative selection:bg-purple-500/30 text-zinc-300 font-mono overflow-hidden transition-colors duration-1000 ${isLockdown ? 'bg-red-950/40' : 'bg-[#050505]'}`}>
       
-      {/* 3D Cyber Globe Layer */}
-      <CyberGlobe />
+      {/* Lockdown Overlay UI */}
+      {isLockdown && (
+         <div className="fixed inset-0 z-[100] pointer-events-none flex flex-col items-center justify-center bg-red-900/20 border-[10px] border-red-600 animate-pulse">
+           <ShieldAlert size={120} className="text-red-500 opacity-80 mb-6 drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]" />
+           <h1 className="text-7xl md:text-9xl font-black text-red-500 opacity-80 tracking-[0.2em] mix-blend-overlay">LOCKDOWN ACTIVE</h1>
+         </div>
+      )}
+
+      {/* Passed events to the globe */}
+      <CyberGlobe logs={events} />
       
       <div className="fixed inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] opacity-10"></div>
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none"></div>
+      <div className={`fixed top-[-20%] left-[-10%] w-[50%] h-[50%] blur-[120px] rounded-full pointer-events-none transition-colors duration-1000 ${isLockdown ? 'bg-red-900/40' : 'bg-purple-900/20'}`}></div>
 
       <div className="max-w-[1600px] mx-auto relative z-10">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-end mb-10 border-b border-white/5 pb-6">
           <div>
-            <h1 className="text-5xl flex items-center gap-4 font-black text-white mb-2 tracking-tighter drop-shadow-[0_0_20px_rgba(168,85,247,0.4)]">
-              <ShieldAlert size={42} className="text-purple-500"/> SHADOWGUARD <span className="font-light text-zinc-500">OS</span>
+            <h1 className={`text-5xl flex items-center gap-4 font-black text-white mb-2 tracking-tighter drop-shadow-[0_0_20px_rgba(168,85,247,0.4)] ${isLockdown ? 'text-red-500' : ''}`}>
+              <ShieldAlert size={42} className={isLockdown ? "text-red-500 animate-bounce" : "text-purple-500"}/> SHADOWGUARD <span className="font-light text-zinc-500">OS</span>
             </h1>
             <p className="text-[10px] text-purple-400/80 tracking-[0.3em] uppercase flex items-center gap-2">
               <Lock size={10}/> Enterprise Data Loss Prevention Matrix
             </p>
             <div className="flex gap-3 mt-8">
               
-              {/* Upgraded Shadcn Buttons */}
               <Button 
                 onClick={() => setView('admin')} 
                 variant="outline"
@@ -157,13 +195,16 @@ export default function App() {
               </p>
             </div>
             <div className="bg-[#0a0a0c] p-5 rounded-full border border-white/5 shadow-2xl relative">
-              {isConnected && (
+              {isConnected && !isLockdown && (
                 <>
                   <div className={`absolute inset-0 rounded-full animate-ping opacity-20 ${systemStatusColor}`}></div>
                   <div className={`absolute inset-[-10px] rounded-full blur-xl opacity-30 ${systemStatusColor} transition-colors duration-500`}></div>
                 </>
               )}
-              <Cpu size={28} className={`relative z-10 ${isConnected ? 'text-white' : 'text-rose-500'}`}/>
+              {isLockdown && (
+                <div className="absolute inset-[-15px] rounded-full blur-xl opacity-70 bg-red-600 animate-pulse transition-colors duration-500"></div>
+              )}
+              <Cpu size={28} className={`relative z-10 ${isConnected ? (isLockdown ? 'text-red-500' : 'text-white') : 'text-rose-500'}`}/>
             </div>
           </div>
         </motion.div>
@@ -172,27 +213,27 @@ export default function App() {
           {view === 'admin' ? (
             <motion.div key="admin" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.3 }}>
               <div className="grid grid-cols-4 gap-6 mb-6">
-                <div className="bg-[#0a0a0c] p-6 border-l-2 border-l-purple-500 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] border-y border-r border-white/5 relative overflow-hidden group">
+                <div className="bg-[#0a0a0c]/80 backdrop-blur-md p-6 border-l-2 border-l-purple-500 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] border-y border-r border-white/5 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Activity size={48}/></div>
                   <p className="text-zinc-500 text-[9px] uppercase tracking-[0.2em] mb-2">Packets Inspected</p>
                   <p className="text-5xl font-black text-white tracking-tighter">{events.length}</p>
                 </div>
-                <div className="bg-[#0a0a0c] p-6 border-l-2 border-l-rose-500 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] border-y border-r border-white/5 relative overflow-hidden">
+                <div className="bg-[#0a0a0c]/80 backdrop-blur-md p-6 border-l-2 border-l-rose-500 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] border-y border-r border-white/5 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/10 blur-2xl rounded-full"></div>
                   <p className="text-zinc-500 text-[9px] uppercase tracking-[0.2em] mb-2">Threats Blocked</p>
                   <p className="text-5xl font-black text-rose-500 tracking-tighter drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]">{events.filter(e=>e.action_taken==='BLOCKED').length}</p>
                 </div>
-                <div className="bg-[#0a0a0c] p-6 border-l-2 border-l-amber-500 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] border-y border-r border-white/5 relative overflow-hidden">
+                <div className="bg-[#0a0a0c]/80 backdrop-blur-md p-6 border-l-2 border-l-amber-500 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] border-y border-r border-white/5 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/10 blur-2xl rounded-full"></div>
                   <p className="text-zinc-500 text-[9px] uppercase tracking-[0.2em] mb-2">In-Flight Redactions</p>
                   <p className="text-5xl font-black text-amber-500 tracking-tighter drop-shadow-[0_0_15px_rgba(245,158,11,0.4)]">{events.filter(e=>e.action_taken==='REDACTED').length}</p>
                 </div>
-                <div className="bg-[#0a0a0c] h-32 p-4 border border-white/5 relative">
+                <div className="bg-[#0a0a0c]/80 backdrop-blur-md h-32 p-4 border border-white/5 relative">
                   <p className="absolute top-4 left-4 text-zinc-500 text-[9px] uppercase tracking-[0.2em] z-10">Live Risk Telemetry</p>
                   <div style={{ width: '100%', height: '100%' }} className="pt-6">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData}>
-                        <Area type="monotone" dataKey="Risk" stroke="#a855f7" strokeWidth={2} fill="#a855f7" fillOpacity={0.1}/>
+                        <Area type="monotone" dataKey="Risk" stroke={isLockdown ? "#ef4444" : "#a855f7"} strokeWidth={2} fill={isLockdown ? "#ef4444" : "#a855f7"} fillOpacity={0.1}/>
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -200,7 +241,7 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-3 gap-6">
-                <div className="col-span-2 bg-[#0a0a0c] h-[550px] flex flex-col border border-white/5 shadow-2xl relative">
+                <div className="col-span-2 bg-[#0a0a0c]/80 backdrop-blur-md h-[550px] flex flex-col border border-white/5 shadow-2xl relative">
                   <div className="bg-[#050505] p-5 border-b border-white/5 flex justify-between items-center">
                     <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-3">
                       <Activity size={14} className="animate-pulse"/> Network Intercept Log
@@ -238,7 +279,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="col-span-1 bg-[#0a0a0c] p-8 border border-white/5 flex flex-col justify-center items-center text-center shadow-2xl relative overflow-hidden group">
+                <div className="col-span-1 bg-[#0a0a0c]/80 backdrop-blur-md p-8 border border-white/5 flex flex-col justify-center items-center text-center shadow-2xl relative overflow-hidden group">
                   <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
                   <div className="flex bg-[#050505] p-1 rounded-sm border border-white/5 mb-6 w-full">
                     <button onClick={() => setForensicMode('video')} className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${forensicMode === 'video' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-zinc-600 hover:text-zinc-400'}`}>Video Mesh</button>
@@ -272,8 +313,8 @@ export default function App() {
               </div>
             </motion.div>
           ) : (
-            <motion.div key="chat" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="max-w-4xl mx-auto bg-[#0a0a0c] h-[700px] flex flex-col shadow-2xl border border-white/5 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-1 h-full bg-purple-600 shadow-[0_0_20px_rgba(147,51,234,1)] z-20"></div>
+            <motion.div key="chat" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="max-w-4xl mx-auto bg-[#0a0a0c]/90 backdrop-blur-lg h-[700px] flex flex-col shadow-2xl border border-white/5 relative overflow-hidden">
+              <div className={`absolute top-0 left-0 w-1 h-full z-20 transition-colors ${isLockdown ? 'bg-red-600 shadow-[0_0_20px_rgba(220,38,38,1)]' : 'bg-purple-600 shadow-[0_0_20px_rgba(147,51,234,1)]'}`}></div>
               <div className="p-6 bg-[#050505] border-b border-white/5 flex items-center justify-between z-10 relative">
                 <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-3"><Terminal size={14}/> ShadowGuard Secure Gateway</h2>
               </div>
@@ -288,7 +329,7 @@ export default function App() {
                   <motion.div initial={{ opacity: 0, x: msg.role === 'user' ? 20 : -20 }} animate={{ opacity: 1, x: 0 }} key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] p-6 shadow-2xl relative ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-l-xl rounded-br-xl' : 'bg-[#050505] border border-white/5 text-zinc-300 rounded-r-xl rounded-bl-xl'}`}>
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      {msg.status && <div className="mt-4 pt-4 border-t border-white/5 text-[9px] font-black uppercase text-rose-500">[ Policy: {msg.status} ]</div>}
+                      {msg.status && <div className={`mt-4 pt-4 border-t border-white/5 text-[9px] font-black uppercase ${msg.status === 'ENFORCING LOCKDOWN' ? 'text-red-500 animate-pulse' : 'text-rose-500'}`}>[ Policy: {msg.status} ]</div>}
                     </div>
                   </motion.div>
                 ))}
@@ -297,12 +338,11 @@ export default function App() {
               </div>
 
               <div className="p-8 bg-[#050505] border-t border-white/5 flex gap-4 z-10 relative">
-                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Enter prompt..." className="flex-grow bg-[#0a0a0c] border border-white/10 rounded-sm px-6 py-4 text-sm focus:outline-none focus:border-purple-500 text-zinc-200" />
+                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Type '> INITIATE LOCKDOWN' to test hardware killswitch..." className="flex-grow bg-[#0a0a0c] border border-white/10 rounded-sm px-6 py-4 text-sm focus:outline-none focus:border-purple-500 text-zinc-200" />
                 
-                {/* Upgraded Shadcn Send Button */}
                 <Button 
                   onClick={sendMessage} 
-                  className="bg-purple-600 hover:bg-purple-500 px-10 py-6 rounded-sm font-black text-[10px] uppercase tracking-[0.2em] text-white"
+                  className={`px-10 py-6 rounded-sm font-black text-[10px] uppercase tracking-[0.2em] text-white ${isLockdown ? 'bg-red-600 hover:bg-red-500' : 'bg-purple-600 hover:bg-purple-500'}`}
                 >
                   Execute <Send size={14}/>
                 </Button>
