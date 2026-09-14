@@ -1,0 +1,40 @@
+Terminal 1: The Brain (FastAPI)
+
+Open a terminal and navigate to your folder: cd path\to\shadow-ai-guard
+
+Activate the environment: venv\Scripts\activate
+
+Start the server: uvicorn main:app --reload
+(Keep this running. It handles your database and video forensics).
+
+
+Terminal 2: The Eyes (Shadow AI Proxy)
+
+Open a second terminal and navigate to the folder: cd path\to\shadow-ai-guard
+
+Activate the environment: venv\Scripts\activate
+
+Start the interceptor: mitmdump -s proxy.py -p 8080
+(Keep this running. It is actively watching for AI traffic).
+
+
+Terminal 3: The Command Center
+
+Open a third terminal. You don't need to activate the venv here.
+
+We will use this terminal to run our React frontend and fire test curl commands.
+
+Verify both Terminal 1 and Terminal 2 are running without errors. Once they are humming, we enter Phase 3.
+
+
+
+
+
+http://localhost:5173
+
+
+
+
+
+
+
